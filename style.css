@@ -1,0 +1,15 @@
+html, body {
+  margin: 0;
+  padding: 0;
+}
+canvas {
+  display: block;
+}
+
+.ui > p {
+  font-family: arial;
+  color: white;
+  background-color: #000000AA;
+  padding: 2px;
+}
+
