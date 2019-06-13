@@ -24,6 +24,11 @@ let curveDeviation = 0.15; // normal curve std deviation (how thick/thin the cur
 let curveStrengthSlider;
 let curveDeviationSlider;
 
+let widthCrop = 0.75; // how much to crop the sides to make it more rectangular
+let widthCropSlider;
+let startX=0; // if width cropping, where to start our drawing
+let endX=480; // if width cropping, where to end our drawing
+
 let centreScaling = 0.75; // how large our lines are within a black boundary
 let centreScalingSlider;
 let scalePointX;
@@ -48,20 +53,21 @@ function setup() {
 
 
   strokeWeight(2);
+  
   if (isMobileDevice()) {
-    strokeWeight(1);
-    // we'll also reduce the resolution a bit
-    lineSpacing *= 2;
+    //strokeWeight(1); // leave it
+    // we'll narrow it, cheekily assume its portrait
+    widthCrop = 0.95;
   }
 
   // I can barely tell the difference at these scales
-  //strokeCap(ROUND);
-  //strokeJoin(ROUND);
+  strokeCap(ROUND);
+  strokeJoin(ROUND);
 
   ui = createDiv();
   ui.class("ui");
 
-  lineSpacingSlider = createSlider(1, 100, lineSpacing); // must be int
+  lineSpacingSlider = createSlider(1, 50, lineSpacing); // must be int
   lineSpacingSlider.position(10, 10);
   lineSpacingSlider.input(onLineSpacingSliderChanged);
   // these one liners.. shame 🔔
@@ -100,19 +106,26 @@ function setup() {
   centreScalingSlider.position(10, 260);
   centreScalingSlider.input(onCentreScalingSliderChanged);
   // shame 🔔
-  createP("scale crop %").parent(ui).position(centreScalingSlider.x+centreScalingSlider.width+10, 245);
+  createP("scale %").parent(ui).position(centreScalingSlider.x+centreScalingSlider.width+10, 245);
+  centreScalingSlider.parent(ui);
+  
+  widthCropSlider = createSlider(0.6, 1, widthCrop,0);
+  widthCropSlider.position(10, 310);
+  widthCropSlider.input(onWidthCropSliderChanged);
+  widthCropSlider.parent(ui);
+  // shame 🔔
+  createP("width %").parent(ui).position(widthCropSlider.x+widthCropSlider.width+10, 295);
   centreScalingSlider.parent(ui);
   
   // these one liners.. shame 🔔
-  createP("controls will hide after 5 seconds").parent(ui).position(centreScalingSlider.x, 300);
+  createP("controls will hide after 5 seconds").parent(ui).position(centreScalingSlider.x, 340);
   
   takeSnapshotWidget = createButton("Save Image 📷");
   takeSnapshotWidget.position(canvas.width / 2, canvas.height - 50);
   takeSnapshotWidget.parent(ui);
   takeSnapshotWidget.mousePressed(takeSnapshot);
 
-  
-  
+    
   fill(0, 0, 0);
   stroke(255,255,255);
 }
@@ -144,8 +157,6 @@ function onLineSpacingSliderChanged() {
 function onLineResolutionSliderChanged() {
   lineResolution = lineResolutionSlider.value();
   // also update bell curve as width has been affected
-  // TODO the rendering is doing some odd skipping
-  // on the right edge when this value is changed  
   computeNormalCurve();
 }
 
@@ -171,6 +182,13 @@ function onCentreScalingSliderChanged(){
   // TODO might be better maths to do this
   scalePointX = ((1 - centreScaling) * (canvas.width*0.5)/displayDensity());
   scalePointY = ((1 - centreScaling) * (canvas.height*0.5)/displayDensity());
+}
+
+function onWidthCropSliderChanged(){
+  widthCrop = widthCropSlider.value(); 
+  
+  startX = Math.floor(((capture.width)) * (1-widthCrop));
+  endX = Math.floor(((capture.width)) * (widthCrop));
 }
 
 function isMobileDevice() {
@@ -204,11 +222,16 @@ function windowResized() {
   renderWidthScale = (canvas.width / capture.width) / displayDensity();
   renderHeightScale = (canvas.height / capture.height) / displayDensity();
   
-    // to crop the image within a boundary we need to find the origin
+  // to crop the image within a boundary we need to find the origin
   // it's a point "centreScaling" along the canvas centre to 0,0
   // TODO might be better maths to do this
   scalePointX = ((1 - centreScaling) * (canvas.width*0.5)/displayDensity());
   scalePointY = ((1 - centreScaling) * (canvas.height*0.5)/displayDensity());
+  
+  // the left point if cropping in from the edge
+  startX = Math.floor(((capture.width)) * (1-widthCrop));
+  // the right point if cropping in from the edge
+  endX = Math.floor(((capture.width)) * (widthCrop));
   
   // reposition any widgets
   takeSnapshotWidget.position((window.innerWidth*0.5)-takeSnapshotWidget.width*0.5, window.innerHeight - 50);
@@ -217,17 +240,13 @@ function windowResized() {
   computeNormalCurve();
 }
 
+
 function computeNormalCurve() {
-  //normalCurve.length = 0;
-  var newLength = capture.width / lineResolution; // how many line sections we render
-  
-  
-  
+  var newLength = capture.width / lineResolution; // how many line sections we render  
   var newStep = 1 / newLength; 
   for (var i = 0; i < newLength; i++) {
     normalCurve[i] = getGaussianFunction(0.5, curveDeviation, 1, newStep * i);
-  }
-  //console.log(normalCurve);
+  } 
 }
 
 // refactored from https://codepen.io/Art2B/pen/BLmyzx
@@ -257,7 +276,6 @@ function draw() {
 
   // draw a joyplot based on the brightness of the image
   // brighter pixels = higher peaks
-
   // for each horizonal line going downwards
   for (var y = 0; y < capture.height; y += lineSpacing) {
     // begin the line
@@ -271,20 +289,28 @@ function draw() {
     // we need to include 2 vertices on either side 1px below where the line should be
     // but the line depends on the pixel intensity and we dont know that yet!
     // so unfortunately we have to duplicate some code for the edges.    
-    [i,j] = plot(0,y,0);
+    // TODO we need the base edges, but I dont like how it looks
+    // might be a way to crop/obscure it, I dont think the stroke color can be changed
+    
+    [i,j] = plot(startX,y,0);
+    let leftY = j;
     vertex(i,j+1); // 1px below    
-    let xCounter=0;
-    let x=0;
+
+    let xCounter=1;
+    let x=0; //could start at startX, but would have to start at correct xCounter
+    
     // for each horizontal line section
-    for (; x < capture.width-lineResolution; x += lineResolution) {
-      [i,j] = plot(x,y,xCounter);
-      vertex(i,j);
+    for (; x < endX; x += lineResolution) { 
+      if (x > startX){
+        [i,j] = plot(x,y,xCounter);
+        vertex(i,j);
+      }
       xCounter++;
     }
+    
     // add the right hand "base"
-    [i,j] = plot(capture.width-1,y,xCounter);
-    //vertex(i,j); // the right
-    vertex(i,j+1); // 1px below
+    [i,j] = plot(endX,y,xCounter);
+    vertex(i,leftY+1); // 1px below
   
     // end the line
     endShape();
@@ -308,7 +334,7 @@ Object.defineProperty(Date.prototype, 'YYYYMMDDHHMMSS', {
 });
 
 // TODO might be more efficient way to return two variables
-function plot(x,y,xIndex){
+function plot(x,y,xIndex){  
   var i = x + y * capture.width;
   return [scalePointX + (x * renderWidthScale)*centreScaling, 
           scalePointY + ((y - (capture.pixels[4 * i] ) * (normalCurve[xIndex] * curveStrength) * lineHeightScale) * renderHeightScale)* centreScaling];
